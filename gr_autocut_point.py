@@ -29,10 +29,11 @@ import pyautogui
 import numpy as np
 from BresenhamAlgorithm import Pos_of_Line, Pos_of_Circle, Pos_in_Circle, \
     Pos_of_Rec 
-from drawing import Line, Rectangle, Circle, Eraser, Clear_All
+from drawing import Line, Rectangle, Circle, Grating, Eraser, Clear_All
 from auxiliary_func import go_fast, background_divide, get_folder_from_file,\
     matrix_divide, float2uint8, calculate_contrast, record_draw_shape,\
     calculate_angle
+from auxiliary_class import GratingProperty
 from crop import find_region
 from IdentifyNum import load_known, identify_num
 from pywinauto.controls.win32_controls import EditWrapper, ButtonWrapper
@@ -53,17 +54,23 @@ class MainWindow(QMainWindow):
         print(self.current_dir)
         self.get_hwnd()
         self.scan_speed = 1
+        self.total_range = 20
         
         self.font = cv2.FONT_HERSHEY_SIMPLEX
         
         self.mouse_pos_initial()
         
-        exitAct = QAction(QIcon(self.current_dir + 'quit.jpg'), '&Quit', self)        
+        self.canvas_blank = np.zeros((512,512),dtype = np.int8)
+        
+        exitAct = QAction(QIcon(self.current_dir + 'quit.png'), '&Quit', self)        
         exitAct.setShortcut('Ctrl+Q')
         exitAct.triggered.connect(qApp.quit)
         
-        help_contact = QAction('Contact', self)
+        help_contact = QAction(QIcon(self.current_dir + 'email.png'), 'Contact', self)
         help_contact.triggered.connect(self.contact)
+        
+        help_about = QAction('About', self)
+        help_about.triggered.connect(self.about)
         
         self.menubar = self.menuBar()
         
@@ -72,13 +79,31 @@ class MainWindow(QMainWindow):
         
         HelpMenu = self.menubar.addMenu('&Help')
         HelpMenu.addAction(help_contact)
-        
+        HelpMenu.addAction(help_about)
         
         self.read_button = QToolButton()
         self.read_button.setIcon(QIcon(self.current_dir + 'read.png'))
         self.read_button.setToolTip('Read Ctrl+R')
         self.read_button.clicked.connect(self.read)
         self.read_button.setShortcut('Ctrl+R')
+        
+        self.select_button = QToolButton()
+        self.select_button.setIcon(QIcon(self.current_dir + 'select.png'))
+        self.select_button.setToolTip('Select')
+        self.select_button.clicked.connect(self.select_move_shape)
+        self.select_button.setCheckable(True)
+        self.select = False
+        self.selecting = False
+        self.select_rec = Rectangle()
+        self.cursor_on_select = False
+        self.moving = False
+        self.move_start = [0,0]
+        self.move_end = [0,0]
+        
+        self.drag_button = QToolButton()
+        self.drag_button.setIcon(QIcon(self.current_dir + 'drag.png'))
+        self.drag_button.setToolTip('Move')
+        self.drag_button.clicked.connect(self.drag_shape)
         
         self.draw_shape_action_list = []
         self.draw_shape_list = []
@@ -93,6 +118,11 @@ class MainWindow(QMainWindow):
         self.draw_shape_line = False
         self.drawing_shape_line = False
         self.show_distance = False
+        
+        self.grating_button = QToolButton()
+        self.grating_button.setIcon(QIcon(self.current_dir+'grating.png'))
+        self.grating_button.setToolTip('Grating')
+        self.grating_button.clicked.connect(self.draw_grating)
         
 #        line = Line(0,0,100,100)
         
@@ -141,17 +171,22 @@ class MainWindow(QMainWindow):
         self.toolbar1 = self.addToolBar('Read')
         self.toolbar1.addWidget(self.read_button)
         
-        self.toolbar2 = self.addToolBar('draw')
-        self.toolbar2.addWidget(self.line_button)
-        self.toolbar2.addWidget(self.undo_button)
-        self.toolbar2.addWidget(self.redo_button)
-        self.toolbar2.addWidget(self.eraser_button)
-        self.toolbar2.addWidget(self.clear_button)
+        self.toolbar2 = self.addToolBar('Select')
+        self.toolbar2.addWidget(self.select_button)
+        self.toolbar2.addWidget(self.drag_button)
         
-        self.toolbar3 = self.addToolBar('run')
-        self.toolbar3.addWidget(self.run_button)
-        self.toolbar3.addWidget(self.repeat_button)
-        self.toolbar3.addWidget(self.stop_button)
+        self.toolbar3 = self.addToolBar('Draw')
+        self.toolbar3.addWidget(self.line_button)
+        self.toolbar3.addWidget(self.grating_button)
+        self.toolbar3.addWidget(self.undo_button)
+        self.toolbar3.addWidget(self.redo_button)
+        self.toolbar3.addWidget(self.eraser_button)
+        self.toolbar3.addWidget(self.clear_button)
+        
+        self.toolbar4 = self.addToolBar('Run')
+        self.toolbar4.addWidget(self.run_button)
+        self.toolbar4.addWidget(self.repeat_button)
+        self.toolbar4.addWidget(self.stop_button)
         
         self.toolbar = self.addToolBar(' ')
         
@@ -223,16 +258,16 @@ class MainWindow(QMainWindow):
 #        self.frame_hwnd = hwndChildList[54]
         
 #        self.frame_hwnd = self.scan_control_hwnd
-        
+        '''
         self.left, self.top, self.right, self.bottom = win32gui.GetWindowRect(self.frame_hwnd)
         print(self.left, self.top, self.right, self.bottom)
         self.screenshot = pyautogui.screenshot(region=[self.left,self.top,\
                                                        self.right-self.left,\
                                                        self.bottom-self.top])
         self.screenshot = np.asarray(self.screenshot)
-        
-        #self.screenshot = cv2.imread('F:/Desktop2020.1.17/AutoCut/screenshot2.bmp')
-        #self.screenshot = cv2.cvtColor(self.screenshot, cv2.COLOR_BGR2RGB)
+        '''
+        self.screenshot = cv2.imread('F:/Desktop2020.1.17/AutoCut/screenshot2.bmp')
+        self.screenshot = cv2.cvtColor(self.screenshot, cv2.COLOR_BGR2RGB)
         self.crop_left, self.crop_top, self.crop_right, self.crop_bottom = find_region(self.screenshot)
         self.screenshot = self.screenshot[self.crop_top: self.crop_bottom, \
                                           self.crop_left: self.crop_right]
@@ -247,7 +282,121 @@ class MainWindow(QMainWindow):
         print('Read')
 
     def contact(self):
-        print('contact')
+        QMessageBox.information(self, 'contact','Please contact jingxuxie@berkeley.edu '+\
+                                'for support. Thanks!')
+        
+    def about(self):
+        QMessageBox.information(self, 'About', 'AFM Auto Cut v1.0. '+ \
+                                'Proudly designed and created by Jingxu Xie(谢京旭).\n \n'
+                                'Copyright © 2020 Jingxu Xie. All Rights Reserved.')
+        
+        
+    def draw_shape_initial(self):
+        self.line_button.setChecked(False)
+        self.draw_shape_line = False
+        self.drawing_shape_line = False
+        
+        self.select_button.setChecked(False)
+        self.select = False
+        self.selecting = False
+        self.select_rec = Rectangle()
+        self.cursor_on_select = False
+        self.moving = False
+        
+        self.eraser_button.setChecked(False)
+        self.erase = False
+        self.drawing_eraser = False
+        
+        
+    def draw_line(self):
+        if self.line_button.isChecked():
+            self.draw_shape_initial()
+            self.draw_shape_line = True
+            self.line_button.setChecked(True)
+        else:
+            self.draw_shape_line = False
+            self.drawing_shape_line = False
+            self.line_button.setChecked(False)
+        print('draw line')
+        
+    def select_move_shape(self):
+        if self.select_button.isChecked():
+            self.draw_shape_initial()
+            self.select = True
+            self.select_button.setChecked(True)
+        else:
+            self.draw_shape_line = False
+            self.select = False
+            self.select_button.setChecked(False)
+        print('select')
+    
+    def drag_shape(self):
+        print('drag')
+        
+    def draw_grating(self):
+        self.grating_property_widget = GratingProperty()
+        self.grating_property_widget.confirmed.connect(self.creat_grating)
+        self.grating_property_widget.show()
+        print('grating')
+    
+    def creat_grating(self, s):
+        if s == 'confirmed':
+            total_width = float(self.grating_property_widget.total_width)
+            total_height = float(self.grating_property_widget.total_height)
+            lines = int(self.grating_property_widget.lines)
+            
+            standard_distance = self.img.shape[0]/self.total_range
+            
+            x1 = int((self.total_range - total_width)/2*standard_distance)
+            y1 = int((self.total_range - total_height)/2*standard_distance)
+            x2 = x1 + int(total_width/self.total_range*self.img.shape[0])
+            y2 = y1 + int(total_height/self.total_range*self.img.shape[1])
+            
+            grating_temp = Grating(x1, y1, x2, y2, total_width = total_width, \
+                                   total_height = total_height, \
+                                   standard_distance = standard_distance,\
+                                   lines = lines, color = (0,255,0),\
+                                   num = self.draw_shape_count)
+            self.draw_shape_count += 1
+            self.draw_shape_action_list.append(grating_temp)
+            print('confirmed')
+            self.grating_property_widget.close()
+        
+    def erase_shape(self):
+        if self.eraser_button.isChecked():
+            self.draw_shape_initial()
+            self.erase = True
+            self.eraser_button.setChecked(True)
+        else:
+            self.erase = False
+            self.eraser_button.setChecked(False)
+    
+    def undo_redo_setting(self):
+        self.undo_button.setIcon(QIcon(self.current_dir+'undo.png'))
+        self.draw_shape_action_list_for_redo = []
+        self.redo_button.setIcon(QIcon(self.current_dir+'redo_gray_opacity.png')) 
+    
+    def undo_draw(self):
+        if len(self.draw_shape_action_list) > 0:
+            self.draw_shape_action_list_for_redo.append(self.draw_shape_action_list[-1])
+            self.redo_button.setIcon(QIcon(self.current_dir+'redo.png'))
+            self.draw_shape_action_list.pop()
+            if len(self.draw_shape_action_list) == 0:
+                self.undo_button.setIcon(QIcon(self.current_dir+'undo_gray_opacity.png'))
+        
+    def redo_draw(self):
+        if len(self.draw_shape_action_list_for_redo) > 0:
+            self.draw_shape_action_list.append(self.draw_shape_action_list_for_redo[-1])
+            self.undo_button.setIcon(QIcon(self.current_dir+'undo.png'))
+            self.draw_shape_action_list_for_redo.pop()
+            if len(self.draw_shape_action_list_for_redo) == 0:
+                self.redo_button.setIcon(QIcon(self.current_dir+'redo_gray_opacity.png'))
+        
+    def clear_draw(self):
+        self.draw_shape_initial()
+        self.draw_shape_action_list.append(Clear_All())
+    
+    
         
     
     def mouse_pos_initial(self):
@@ -277,6 +426,15 @@ class MainWindow(QMainWindow):
                 self.draw_shape_action_list.append(Eraser(self.mouse_x1, \
                                                           self.mouse_y1, num = [0]))
                 self.drawing_eraser = True
+        elif event.buttons() == Qt.LeftButton and self.select and not self.cursor_on_select:
+            if self.check_mouse_valid():
+                self.select_rec = Rectangle(self.mouse_x1, self.mouse_y1,\
+                                            self.mouse_x2, self.mouse_y2,\
+                                            num = -1, color = (0,0,0), width = 2)
+                self.selecting = True
+        elif event.buttons() == Qt.LeftButton and self.cursor_on_select:
+            self.move_start = [self.mouse_x1, self.mouse_y1]
+            self.moving = True
             
             print(self.mouse_x1, self.mouse_y1)
         #print(self.get_pos_on_screen(769, 769))
@@ -290,11 +448,38 @@ class MainWindow(QMainWindow):
                 self.draw_shape_action_list[-1].x2 = self.mouse_x2
                 self.draw_shape_action_list[-1].y2 = self.mouse_y2
                 self.draw_shape_action_list[-1].pos_refresh()
-        if self.drawing_eraser and len(self.draw_shape_action_list) > 0:
+        elif self.drawing_eraser and len(self.draw_shape_action_list) > 0:
             if self.check_mouse_valid():
                 self.draw_shape_action_list[-1].x1 = self.mouse_x2
                 self.draw_shape_action_list[-1].y1 = self.mouse_y2
                 self.draw_shape_action_list[-1].pos_refresh()
+        elif self.selecting:
+            if self.check_mouse_valid():
+                self.select_rec.x2 = self.mouse_x2
+                self.select_rec.y2 = self.mouse_y2
+                self.select_rec.pos_refresh()
+        elif self.select and not self.moving:
+            x_temp, y_temp = Pos_in_Circle(self.mouse_x2, self.mouse_y2, 20)
+            self.cursor_on_select = False
+            for i in range(len(x_temp)):
+                if x_temp[i] < self.canvas_blank.shape[1] and y_temp[i] < self.canvas_blank.shape[0]:
+                    num = self.canvas_blank[y_temp[i], x_temp[i]]
+                    if num == -1:
+                        self.setCursor(Qt.SizeAllCursor)
+                        self.cursor_on_select = True
+                        break
+            if not self.cursor_on_select:
+                self.setCursor(Qt.ArrowCursor)
+        if self.moving:
+            self.move_end = [self.mouse_x2, self.mouse_y2]
+            move_x = self.move_end[0] - self.move_start[0]
+            move_y = self.move_end[1] - self.move_start[1]
+            self.select_rec.x1 += move_x
+            self.select_rec.x2 += move_x
+            self.select_rec.y1 += move_y
+            self.select_rec.y2 += move_y
+            self.select_rec.pos_refresh()
+            self.move_start = [self.mouse_x2, self.mouse_y2]
      
     def mouseReleaseEvent(self, event):
 #        if self.mouse_x1_raw == self.mouse_x2_raw and self.mouse_y1_raw == self.mouse_y2_raw:
@@ -308,6 +493,10 @@ class MainWindow(QMainWindow):
             self.drawing_eraser = False
             if len(self.draw_shape_action_list[-1].num) == 1:
                 self.draw_shape_action_list.pop()
+        if event.button() == Qt.LeftButton and self.selecting:
+            self.selecting = False
+        elif event.button() == Qt.LeftButton and self.moving:
+            self.moving = False
         
     def mouse_pos_correct(self):
         lbl_main_x = self.lbl_main.pos().x()
@@ -326,20 +515,43 @@ class MainWindow(QMainWindow):
            1 <= self.mouse_y2 < self.img.shape[0] - 1:
             return True
         else:
-            return False    
+            return False
+        
     
     def refresh_show(self):
         self.img = self.screenshot.copy()
-        if len(self.draw_shape_action_list) > 0:
-            self.generate_draw_shape_list()
-            self.draw_shape_canvas()
+        #self.canvas_blank = np.zeros((self.img.shape[0], self.img.shape[1]), dtype = int)
         if self.drawing_eraser:
             eraser_temp = self.draw_shape_action_list[-1]
             cv2.circle(self.img, *eraser_temp.pos, eraser_temp.size, \
                        eraser_temp.color, eraser_temp.width)
             cv2.circle(self.img, *eraser_temp.pos, eraser_temp.size, \
                        (0,0,0), 1)
-#            self.find_eraser_num()
+            self.find_eraser_num()
+        if len(self.draw_shape_action_list) > 0:
+            self.generate_draw_shape_list()
+            self.draw_shape_canvas()
+        if self.select:
+            cv2.rectangle(self.img, *self.select_rec.pos,\
+                          self.select_rec.color, self.select_rec.width)
+            x_temp, y_temp = Pos_of_Rec(*list(self.select_rec.pos[0]), \
+                                        *list(self.select_rec.pos[1]))
+            self.canvas_blank = record_draw_shape(self.canvas_blank, \
+                                                  np.array(x_temp), np.array(y_temp), \
+                                                  self.select_rec.num)
+            if not self.selecting:
+                pass
+#                x_temp, y_temp = Pos_in_Circle(self.mouse_x2, self.mouse_y2, 10)
+#                on_rec = False
+#                for i in range(len(x_temp)):
+#                    if x_temp[i] < self.canvas_blank.shape[1] and y_temp[i] < self.canvas_blank.shape[0]:
+#                        num = self.canvas_blank[y_temp[i], x_temp[i]]
+#                        if num == -1:
+#                            self.setCursor(Qt.SizeAllCursor)
+#                            on_rec = True
+#                            break
+#                if not on_rec:
+#                    self.setCursor(Qt.ArrowCursor)
         self.show_on_screen()
         
         
@@ -390,7 +602,28 @@ class MainWindow(QMainWindow):
                     pos = (round((shape.x1 + shape.x2)/2), round((shape.y1 + shape.y2)/2))
                     cv2.putText(self.img, str(round(distance, 2)), pos, \
                                 self.font, 0.7, (255,0,0), 1, cv2.LINE_AA)
+            elif shape.prop == 'grating':
+                cv2.putText(self.img, str(count), (shape.x2, shape.y2), self.font, 0.7, \
+                            shape.color, 1, cv2.LINE_AA)
+                count += 1
+                for grating in shape.grating_list:
+                    x_temp, y_temp = Pos_of_Line(*list(grating.pos[0]), *list(grating.pos[1]))
+                    self.canvas_blank = record_draw_shape(self.canvas_blank, \
+                                                          np.array(x_temp), np.array(y_temp), \
+                                                          shape.num)
+                    cv2.circle(self.img, grating.pos[0], 5, grating.color,1)
+                    cv2.line(self.img, *grating.pos, grating.color, grating.width)
                     
+    
+    def find_eraser_num(self):
+        x_temp, y_temp = Pos_in_Circle(*list(self.draw_shape_action_list[-1].pos[0]), \
+                                       self.draw_shape_action_list[-1].size)
+        for i in range(len(x_temp)):
+            if x_temp[i] < self.canvas_blank.shape[1] and y_temp[i] < self.canvas_blank.shape[0]:
+                num = self.canvas_blank[y_temp[i], x_temp[i]]
+                if num != 0:
+                    self.draw_shape_action_list[-1].num.append(num)
+                    break                
                 
             
     def start_refresh(self):
@@ -402,59 +635,7 @@ class MainWindow(QMainWindow):
         self.pixmap = QPixmap(self.img_qi)
         self.lbl_main.setPixmap(self.pixmap)
         
-    def draw_line(self):
-        if self.line_button.isChecked():
-            self.draw_shape_initial()
-            self.draw_shape_line = True
-            self.line_button.setChecked(True)
-        else:
-            self.draw_shape_line = False
-            self.drawing_shape_line = False
-            self.line_button.setChecked(False)
-        print('draw line')
-        
-    def erase_shape(self):
-        if self.eraser_button.isChecked():
-            self.draw_shape_initial()
-            self.erase = True
-            self.eraser_button.setChecked(True)
-        else:
-            self.erase = False
-            self.eraser_button.setChecked(False)
     
-    def undo_redo_setting(self):
-        self.undo_button.setIcon(QIcon(self.current_dir+'undo.png'))
-        self.draw_shape_action_list_for_redo = []
-        self.redo_button.setIcon(QIcon(self.current_dir+'redo_gray_opacity.png')) 
-    
-    def undo_draw(self):
-        if len(self.draw_shape_action_list) > 0:
-            self.draw_shape_action_list_for_redo.append(self.draw_shape_action_list[-1])
-            self.redo_button.setIcon(QIcon(self.current_dir+'redo.png'))
-            self.draw_shape_action_list.pop()
-            if len(self.draw_shape_action_list) == 0:
-                self.undo_button.setIcon(QIcon(self.current_dir+'undo_gray_opacity.png'))
-        
-    def redo_draw(self):
-        if len(self.draw_shape_action_list_for_redo) > 0:
-            self.draw_shape_action_list.append(self.draw_shape_action_list_for_redo[-1])
-            self.undo_button.setIcon(QIcon(self.current_dir+'undo.png'))
-            self.draw_shape_action_list_for_redo.pop()
-            if len(self.draw_shape_action_list_for_redo) == 0:
-                self.redo_button.setIcon(QIcon(self.current_dir+'redo_gray_opacity.png'))
-        
-    def clear_draw(self):
-        self.draw_shape_initial()
-        self.draw_shape_action_list.append(Clear_All())
-    
-    def draw_shape_initial(self):
-        self.line_button.setChecked(False)
-        self.draw_shape_line = False
-        self.drawing_shape_line = False
-        
-        self.eraser_button.setChecked(False)
-        self.erase = False
-        self.drawing_eraser = False
     
     def stop_cut(self):
         print('stop')
@@ -464,24 +645,29 @@ class MainWindow(QMainWindow):
         i = 0
         while i < draw_list_length:
             shape = self.draw_shape_list[i]
-            shape_list = [shape]
-            shape_points = self.get_read_list(shape.pos[0][0], shape.pos[0][1],\
-                                              shape.pos[1][0], shape.pos[1][1])
+            if shape.prop == 'grating':
+                for grating in shape:
+                    shape_list = [shape]
+                    self.cutting(shape_list)
+            else:
+                shape_list = [shape]
+#            shape_points = self.get_read_list(shape.pos[0][0], shape.pos[0][1],\
+#                                              shape.pos[1][0], shape.pos[1][1])
             
-            for j in range(i, draw_list_length - 1):
-                shape_current = self.draw_shape_list[j]
-                shape_next = self.draw_shape_list[j + 1]
-                if shape_current.pos[1][0] == shape_next.pos[0][0] and\
-                   shape_current.pos[1][1] == shape_next.pos[0][1]:
-                    shape_points += self.get_read_list(shape_next.pos[0][0], shape_next.pos[0][1],\
-                                                       shape_next.pos[1][0], shape_next.pos[1][1])
-                    shape_list.append(shape_next)
-                    i = j + 1
-                else:
-                    break
+                for j in range(i, draw_list_length - 1):
+                    shape_current = self.draw_shape_list[j]
+                    shape_next = self.draw_shape_list[j + 1]
+                    if shape_current.pos[1][0] == shape_next.pos[0][0] and \
+                       shape_current.pos[1][1] == shape_next.pos[0][1]:
+#                        shape_points += self.get_read_list(shape_next.pos[0][0], shape_next.pos[0][1],\
+#                                                           shape_next.pos[1][0], shape_next.pos[1][1])
+                        shape_list.append(shape_next)
+                        i = j + 1
+                    else:
+                        break
             
             #z_pos_read = self.read_z_on_line(shape_points)
-            self.cutting(shape_list)#, z_pos_read)
+                self.cutting(shape_list)#, z_pos_read)
             i += 1
                 
 #                z_pos_read = self.read_z_on_line(shape.pos[0][0], shape.pos[0][1],\
@@ -553,8 +739,13 @@ class MainWindow(QMainWindow):
         self.drag_prob(pos_x, pos_y)
         time.sleep(0.6)
         
-        self.z_offset_Button.click()
-        time.sleep(1)
+        for i in range(10):
+            try:
+                self.z_offset_Button.click()
+                break
+            except:
+                time.sleep(0.1)
+        time.sleep(0.5)
         text = 0
         for i in range(26):
             text += 0.01
@@ -563,15 +754,7 @@ class MainWindow(QMainWindow):
         
 #        points = self.get_read_list(x1, y1, x2, y2)
         for shape in shape_list:
-            '''
-            self.z_offset_Button.click()
-            time.sleep(0.5)
-            text = 0
-            for i in range(40):
-                text += 0.01
-                self.set_offset(text)
-                time.sleep(0.3)
-            '''
+            
             distance = self.get_distance(shape.pos[0][0], shape.pos[0][1],\
                                          shape.pos[1][0], shape.pos[1][1])
             time_cut = self.scan_speed*distance
@@ -614,11 +797,16 @@ class MainWindow(QMainWindow):
             #self.set_offset(text)
             #time.sleep(0.2)
         '''
-        self.z_offset_Button.click()
+        for i in range(10):
+            try:
+                self.z_offset_Button.click()
+                break
+            except:
+                time.sleep(0.1)
         time.sleep(0.2)
         self.move_time_Edit.set_text(str(0.5))
         win32api.SendMessage(self.move_time_hwnd, win32con.WM_CHAR, 13, 0)
-        time.sleep(0.2) 
+        time.sleep(0.5) 
 
     def read_z_on_line(self, points):
 #        points = self.get_read_list(x1, y1, x2, y2)
@@ -691,7 +879,15 @@ if __name__ == '__main__':
     #os.environ["CUDA_VISIBLE_DEVICES"] = "1"
     app = QApplication(sys.argv)
     
+    splash_path = os.path.abspath(__file__).replace('\\','/')
+    splash_path = get_folder_from_file(splash_path)
+    splash = QSplashScreen(QPixmap(splash_path + 'support_files/drawing.jpg'))
+    
+    splash.show()
+    splash.showMessage('Loading……')
+    
     window = MainWindow()
+    splash.close()
     sys.exit(app.exec_())
 
 

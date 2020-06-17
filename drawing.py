@@ -65,6 +65,15 @@ class Rectangle(Shape):
         self.prop = 'rec'
         
     def pos_refresh(self):
+        x1_temp, x2_temp = self.x1, self.x2
+        y1_temp, y2_temp = self.y1, self.y2
+        
+        self.x1 = min(x1_temp, x2_temp)
+        self.x2 = max(x1_temp, x2_temp)
+        
+        self.y1 = min(y1_temp, y2_temp)
+        self.y2 = max(y1_temp, y2_temp)
+        
         self.pos1 = (self.x1, self.y1)
         self.pos2 = (self.x2, self.y2)
         self.pos = [self.pos1, self.pos2]
@@ -96,6 +105,46 @@ class Circle(Shape):
         
         radius = np.sqrt((self.x2 - self.x1)**2 + (self.y2 - self.y1)**2)
         self.radius = round(radius/2).astype(int)
+
+
+class Grating(Shape):
+    def __init__(self, x1 = 0, y1 = 0, x2 = 0, y2 = 0, total_width = 0, total_height = 0, \
+                 standard_distance = 0,color = (255, 0, 0), width = 1, lines = 2, num = 0, \
+                 z_like = False, direction = 'up2down'):
+        self.x1 = x1
+        self.y1 = y1
+        
+        self.x2 = x2
+        self.y2 = y2
+        
+        self.pos = [(x1,y1), (x2,y2)]
+        
+        self.total_width = total_width
+        self.total_height = total_height
+        self.standard_distance = standard_distance
+        
+        self.color = color
+        self.width = width
+        self.lines = lines
+        self.num = num
+        self.interval = self.total_width/max(1, self.lines-1)*standard_distance
+        self.z_like = z_like
+        self.direction = direction
+        
+        self.prop = 'grating'
+        
+        self.generate_grating()
+    
+    def generate_grating(self):
+        self.grating_list = []
+        for i in range(self.lines):
+            self.grating_list.append(Line(int(self.x1 + i*self.interval), self.y1, \
+                                          int(self.x1 + i*self.interval), self.y2, \
+                                          color = self.color, num = self.num))
+#        if self.z_like:
+#            for i in range(self.lines):
+#                self.grating_shape[i]
+        
 
 
 class Eraser(Shape):
