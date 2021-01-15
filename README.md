@@ -1,6 +1,6 @@
 # 2D Material Nanolithography Using Atomic Force Microscope (AFM)
 
-This is a GUI program to cut 2D material(graphene, TMD, etc.) into any shape you want. The results depends highly on the humidity of environment. 50% or more humidity leads to very clean etch. Here are some etched graphene examples.
+This is a GUI program to etch 2D material(graphene, TMD, etc.) into any shape you want. The results depends highly on the humidity of environment. 50% or more humidity leads to very clean etch. Here are some etched graphene examples.
 
 ## Examples (graphene)
 
